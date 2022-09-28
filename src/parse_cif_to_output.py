@@ -17,18 +17,28 @@ def get_bonded_pairs(atom_ids, dists):
     for atom_id in atom_ids:
         dds = dists[atom_id]
         logging.warning(
-            "THIS NEEDS WORK, IT IS NOT FINDING ALL BONDS WITH THESE LIMITS!"
+            "THIS NEEDS WORK, TO MODIFY LENGTHS FOR SOME SYSTEMS!"
         )
         long_bonded_ids = [
             i
-            for i in np.argwhere((dds < 31) & (dds > 28))
+            for i in np.argwhere((dds < 26) & (dds > 22))
             if i in atom_ids
         ]
         short_bonded_ids = [
             i
-            for i in np.argwhere((dds < 25) & (dds > 20))
+            for i in np.argwhere((dds < 22) & (dds > 20))
             if i in atom_ids
         ]
+        # long_bonded_ids = [
+        #     i
+        #     for i in np.argwhere((dds < 31) & (dds > 28))
+        #     if i in atom_ids
+        # ]
+        # short_bonded_ids = [
+        #     i
+        #     for i in np.argwhere((dds < 25) & (dds > 20))
+        #     if i in atom_ids
+        # ]
         if len(long_bonded_ids) + len(short_bonded_ids) != 3:
             continue
         all_bonded_ids = short_bonded_ids + long_bonded_ids
