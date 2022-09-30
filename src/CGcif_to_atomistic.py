@@ -9,7 +9,6 @@ from cif_writer import CifWriter
 
 class NewNonLinearVertex(stk.cof.NonLinearVertex):
     def place_building_block(self, building_block, edges):
-        logging.info("check why this is needed.")
         assert building_block.get_num_functional_groups() > 2, (
             f"{building_block} needs to have more than 2 functional "
             "groups but has "
@@ -92,6 +91,7 @@ class CustomPeriodicTopology:
             _vertex_prototypes = vertex_prototypes
             _edge_prototypes = edge_prototypes
 
+        logging.info("check why place bb is needed.")
         self._topology_graph = InternalTopology(
             building_blocks=building_blocks,
             lattice_size=lattice_size,
@@ -455,6 +455,7 @@ def main():
 
     name = cif_file.replace(".cif", "")
     _, temp, n = name.split("_")
+    sim_name = f"cof_n_{n}_T_{temp}"
     logging.info(f"ask about this variable, n: {n}, temp: {temp}")
     cif_data = parse_cif(cif_file, n=int(n))
 
@@ -483,16 +484,18 @@ def main():
 
     CifWriter().write(
         molecule=cof,
-        path=f"cof_n_{n}_T_{temp}.cif",
+        path=f"{sim_name}.cif",
         periodic_info=unit_cell,
     )
-    stk.XyzWriter().write(molecule=cof, path="cof.xyz")
-    stk.MolWriter().write(molecule=cof, path="cof.mol")
+    stk.XyzWriter().write(
+        molecule=cof,
+        path=f"{sim_name}.xyz",
+    )
 
-    logging.info('optimising the cof with Gulp...')
+    logging.info("optimising the cof with Gulp...")
     gulp_opt = stko.GulpUFFOptimizer(
         gulp_path="/home/atarzia/software/gulp-6.1/Src/gulp",
-        output_dir=f'{name}_gulpopt',
+        output_dir=f"{name}_gulpopt",
         maxcyc=50,
         conjugate_gradient=True,
     )
@@ -503,11 +506,13 @@ def main():
     )
     CifWriter().write(
         molecule=cof,
-        path=f"cof_n_{n}_T_{temp}_opt.cif",
+        path=f"{sim_name}_opt.cif",
         periodic_info=unit_cell,
     )
-    stk.XyzWriter().write(molecule=cof, path="cof_opt.xyz")
-    stk.MolWriter().write(molecule=cof, path="cof_opt.mol")
+    stk.XyzWriter().write(
+        molecule=cof,
+        path=f"{sim_name}_opt.xyz",
+    )
 
 
 if __name__ == "__main__":
