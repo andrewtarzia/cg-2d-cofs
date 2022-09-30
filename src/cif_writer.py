@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import typing
 import stk
+import numpy as np
 
 
 class CifWriter:
@@ -34,6 +35,7 @@ class CifWriter:
         alpha = round(periodic_info.get_alpha(), 3)
         beta = round(periodic_info.get_beta(), 3)
         gamma = round(periodic_info.get_gamma(), 3)
+        inv_matrix = np.linalg.inv(periodic_info.get_cell_matrix())
 
         top_string = (
             "data_cif\n\n"
@@ -58,19 +60,15 @@ class CifWriter:
 
         atom_counts: dict[str, int] = {}
         coords = molecule.get_position_matrix()
+        frac_coords = np.dot(coords, inv_matrix)
         for atom_id in atom_ids:
             (atom,) = molecule.get_atoms(atom_ids=atom_id)
-            x, y, z = (i for i in coords[atom_id])
-            xfract = round(x / a, 4)
-            yfract = round(y / a, 4)
-            zfract = round(z / a, 4)
+            x, y, z = (i for i in frac_coords[atom_id])
             element = atom.__class__.__name__
             atom_counts[element] = atom_counts.get(element, 0) + 1
             name = f"{element}{atom_counts[element]}"
             occu = 1.0
-            content.append(
-                f"{name} {xfract} {yfract} {zfract} {occu}\n"
-            )
+            content.append(f"{name} {x} {y} {z} {occu}\n")
 
         return content
 
