@@ -492,6 +492,7 @@ def main():
         path=f"{sim_name}.xyz",
     )
 
+    raise SystemExit()
     logging.info("optimising the cof with Gulp...")
     gulp_opt = stko.GulpUFFOptimizer(
         gulp_path="/home/atarzia/software/gulp-6.1/Src/gulp",
