@@ -202,19 +202,27 @@ def get_vertex_prototypes(cif_data):
 
 
 def get_bb_dictionary(linear_vertices, nonlinear_vertices, coord_type):
+    logging.info("need to automate the selection of BBs.")
     # Define atomistic bbs.
     bb1 = stk.BuildingBlock(
-        smiles="Br/N=C/c2ccc(c1ccc(/C=N\Br)cc1)cc2",
-        functional_groups=(stk.BromoFactory(),),
-    )
-    bb2 = stk.BuildingBlock(
         smiles="Br/N=C/c1ccc(/C=N/Br)cc1",
         functional_groups=(stk.BromoFactory(),),
     )
+    bb2 = stk.BuildingBlock(
+        smiles=r"Br/N=C/c2ccc(c1ccc(/C=N\Br)cc1)cc2",
+        functional_groups=(stk.BromoFactory(),),
+    )
     bb3 = stk.BuildingBlock(
+        smiles=r"C1=CC(C2=CC=C(C3=CC=C(/C=N/Br)C=C3)C=C2)=CC=C1/C=N/Br",
+        functional_groups=(stk.BromoFactory(),),
+    )
+    tritopic = stk.BuildingBlock(
         smiles="Brc4ccc(c3cc(c1ccc(Br)cc1)cc(c2ccc(Br)cc2)c3)cc4",
         functional_groups=(stk.BromoFactory(),),
     )
+
+    small_bb_in_model = bb1
+    large_bb_in_model = bb3
 
     bb1_values = []
     bb2_values = []
@@ -222,19 +230,21 @@ def get_bb_dictionary(linear_vertices, nonlinear_vertices, coord_type):
         vert = linear_vertices[i]
         id_ = vert.get_id()
         if coord_type[i] == "Mn":
-            bb1_values.append(id_)
-        elif coord_type[i] == "Pb":
             bb2_values.append(id_)
+        # elif coord_type[i] == "Pb":
+        #     bb2_values.append(id_)
+        elif coord_type[i] == "Pb":
+            bb1_values.append(id_)
 
-    bb3_values = []
+    tritopic_values = []
     for i in nonlinear_vertices:
         vert = nonlinear_vertices[i]
-        bb3_values.append(vert.get_id())
+        tritopic_values.append(vert.get_id())
 
     return {
-        bb1: tuple(bb1_values),
-        bb2: tuple(bb2_values),
-        bb3: tuple(bb3_values),
+        small_bb_in_model: tuple(bb1_values),
+        large_bb_in_model: tuple(bb2_values),
+        tritopic: tuple(tritopic_values),
     }
 
 
