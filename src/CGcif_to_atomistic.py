@@ -2,6 +2,7 @@ import numpy as np
 import stk
 import stko
 import sys
+import ase
 import logging
 
 from cif_writer import CifWriter
@@ -50,9 +51,7 @@ class CustomPeriodicTopology:
         self,
         building_blocks,
         lattice_size,
-        lattice_constant_a,
-        lattice_constant_b,
-        lattice_constant_c,
+        lattice_matrix,
         vertex_prototypes,
         edge_prototypes,
         vertex_alignments=None,
@@ -77,15 +76,9 @@ class CustomPeriodicTopology:
                 return 1
 
             _lattice_constants = _a, _b, _c = (
-                np.array([lattice_constant_a, 0.0, 0.0]),
-                np.array(
-                    [
-                        -lattice_constant_a * 0.5,
-                        -lattice_constant_b * np.sqrt(3) / 2,
-                        0.0,
-                    ]
-                ),
-                np.array([0.0, 0.0, lattice_constant_c]),
+                np.array(lattice_matrix[0]),
+                np.array(lattice_matrix[1]),
+                np.array(lattice_matrix[2]),
             )
 
             _vertex_prototypes = vertex_prototypes
@@ -122,6 +115,23 @@ def parse_cif(path, n):
         float(lines[10][1]),
     )
 
+    cell_angles = (
+        float(lines[11][1]),
+        float(lines[12][1]),
+        float(lines[13][1]),
+    )
+
+    lattice_matrix = ase.geometry.cellpar_to_cell(
+        cellpar=[
+            cell_lengths[0],
+            cell_lengths[1],
+            cell_lengths[2],
+            cell_angles[0],
+            cell_angles[1],
+            cell_angles[2],
+        ]
+    )
+
     for i in range(20 * n * n):
         x, y, z = lines[i + 21][1:4]
         coords.append(
@@ -143,22 +153,18 @@ def parse_cif(path, n):
         "coords": coords,
         "coord_type": coord_type,
         "cell_lengths": cell_lengths,
+        "cell_angles": cell_angles,
+        "lattice_matrix": lattice_matrix,
     }
 
 
-def write_output_txt(
-    path,
-    lattice_constant_a,
-    lattice_constant_b,
-    lattice_constant_c,
-):
+def write_output_txt(path, lattice_matrix):
     with open(path, "w") as f:
         f.write(
             "    _lattice_constants = _a, _b, _c = (\n"
-            f"       np.array([{lattice_constant_a}, 0., 0.]),\n"
-            f"       np.array([{-lattice_constant_a*.5}, "
-            f"{-lattice_constant_b * np.sqrt(3) / 2}, 0.]),\n"
-            f"       np.array([0., 0., {lattice_constant_c}])\n    "
+            f"       np.array([{lattice_matrix[0]}]),\n"
+            f"       np.array([{lattice_matrix[1]}]),\n"
+            f"       np.array([{lattice_matrix[2]}]),\n"
             ")\n\n"
         )
 
@@ -167,14 +173,15 @@ def get_vertex_prototypes(cif_data):
 
     nonlinear_vertices = {}
     linear_vertices = {}
+    gamma = cif_data["cell_angles"][2] * np.pi / 180
     for i, ctype in enumerate(cif_data["coord_type"]):
         coordinates = cif_data["coords"][i]
         if ctype == "Ti":
             vertex = NewNonLinearVertex(
                 id=len(nonlinear_vertices),
                 position=(
-                    coordinates[0] - coordinates[1] * 0.5,
-                    -coordinates[1] * np.sqrt(3) / 2,
+                    coordinates[0] + coordinates[1] * np.cos(gamma),
+                    coordinates[1] * np.sin(gamma),
                     coordinates[2],
                 ),
             )
@@ -183,8 +190,8 @@ def get_vertex_prototypes(cif_data):
             vertex = stk.cof.LinearVertex(
                 id=len(linear_vertices),
                 position=(
-                    coordinates[0] - coordinates[1] * 0.5,
-                    -coordinates[1] * np.sqrt(3) / 2,
+                    coordinates[0] + coordinates[1] * np.cos(gamma),
+                    coordinates[1] * np.sin(gamma),
                     coordinates[2],
                 ),
             )
@@ -201,28 +208,38 @@ def get_vertex_prototypes(cif_data):
     return nonlinear_vertices, linear_vertices
 
 
-def get_bb_dictionary(linear_vertices, nonlinear_vertices, coord_type):
+def get_bb_dictionary(
+    linear_vertices,
+    nonlinear_vertices,
+    coord_type,
+    small_bb_name,
+    large_bb_name,
+):
     logging.info("need to automate the selection of BBs.")
     # Define atomistic bbs.
-    bb1 = stk.BuildingBlock(
-        smiles="Br/N=C/c1ccc(/C=N/Br)cc1",
-        functional_groups=(stk.BromoFactory(),),
-    )
-    bb2 = stk.BuildingBlock(
-        smiles=r"Br/N=C/c2ccc(c1ccc(/C=N\Br)cc1)cc2",
-        functional_groups=(stk.BromoFactory(),),
-    )
-    bb3 = stk.BuildingBlock(
-        smiles=r"C1=CC(C2=CC=C(C3=CC=C(/C=N/Br)C=C3)C=C2)=CC=C1/C=N/Br",
-        functional_groups=(stk.BromoFactory(),),
-    )
+    bbs = {
+        "bb1": stk.BuildingBlock(
+            smiles="Br/N=C/c1ccc(/C=N/Br)cc1",
+            functional_groups=(stk.BromoFactory(),),
+        ),
+        "bb2": stk.BuildingBlock(
+            smiles=r"Br/N=C/c2ccc(c1ccc(/C=N\Br)cc1)cc2",
+            functional_groups=(stk.BromoFactory(),),
+        ),
+        "bb3": stk.BuildingBlock(
+            smiles=r"C1=CC(C2=CC=C(C3=CC=C(/C=N/Br)C=C3)C=C2)=CC=C1/C=N/Br",
+            functional_groups=(stk.BromoFactory(),),
+        ),
+    }
     tritopic = stk.BuildingBlock(
         smiles="Brc4ccc(c3cc(c1ccc(Br)cc1)cc(c2ccc(Br)cc2)c3)cc4",
         functional_groups=(stk.BromoFactory(),),
     )
 
-    small_bb_in_model = bb1
-    large_bb_in_model = bb3
+    small_bb_in_model = bbs[small_bb_name]
+    large_bb_in_model = bbs[large_bb_name]
+    logging.info(f"selected small bb: {small_bb_in_model}")
+    logging.info(f"selected large bb: {large_bb_in_model}")
 
     bb1_values = []
     bb2_values = []
@@ -253,13 +270,18 @@ def run_construction(
     nonlinear_vertices,
     edge_prototypes,
     cif_data,
+    small_bb_name,
+    large_bb_name,
 ):
     coord_type = cif_data["coord_type"]
-    cell_lengths = cif_data["cell_lengths"]
+    lattice_matrix = cif_data["lattice_matrix"]
+
     bb_dict = get_bb_dictionary(
         linear_vertices=linear_vertices,
         nonlinear_vertices=nonlinear_vertices,
         coord_type=coord_type,
+        small_bb_name=small_bb_name,
+        large_bb_name=large_bb_name,
     )
 
     lattice_size = (1, 1, 1)
@@ -271,9 +293,7 @@ def run_construction(
     topology_graph = CustomPeriodicTopology(
         building_blocks=bb_dict,
         lattice_size=lattice_size,
-        lattice_constant_a=cell_lengths[0],
-        lattice_constant_b=cell_lengths[1],
-        lattice_constant_c=5.0,
+        lattice_matrix=lattice_matrix,
         vertex_prototypes=vertex_prototypes,
         edge_prototypes=edge_prototypes,
     )
@@ -282,11 +302,10 @@ def run_construction(
     cof = stk.ConstructedMolecule.init_from_construction_result(
         construction_result=construction_result,
     )
-    periodic_info = construction_result.get_periodic_info()
     unit_cell = stko.UnitCell(
-        vector_1=periodic_info.get_vector_1(),
-        vector_2=periodic_info.get_vector_2(),
-        vector_3=periodic_info.get_vector_3(),
+        vector_1=lattice_matrix[0],
+        vector_2=lattice_matrix[1],
+        vector_3=lattice_matrix[2],
     )
 
     return cof, unit_cell
@@ -298,66 +317,74 @@ def get_periodicity(
     lattice_constant_a,
     lattice_constant_b,
     lattice_constant_c,
+    gamma,
 ):
+
     vec1 = np.zeros((2))
-    vec1[0] = (nlc[0] - nlc[1] * 0.5) - (lc[0] - lc[1] * 0.5)
-    vec1[1] = -(nlc[1] - lc[1]) * np.sqrt(3) / 2
+    vec1[0] = (nlc[0] + nlc[1] * np.cos(gamma)) - (
+        lc[0] + lc[1] * np.cos(gamma)
+    )
+    vec1[1] = (nlc[1] - lc[1]) * np.sin(gamma)
 
     # +x
     vec2 = np.zeros((2))
-    vec2[0] = (nlc[0] + lattice_constant_a - nlc[1] / 2) - (
-        lc[0] - lc[1] / 2
+    vec2[0] = (nlc[0] + lattice_constant_a + nlc[1] * np.cos(gamma)) - (
+        lc[0] + lc[1] * np.cos(gamma)
     )
-    vec2[1] = -(nlc[1] - lc[1]) * np.sqrt(3) / 2
+    vec2[1] = (nlc[1] - lc[1]) * np.sin(gamma)
 
     # +x+y
     vec3 = np.zeros((2))
     vec3[0] = (
-        nlc[0] + lattice_constant_a - (nlc[1] - lattice_constant_b) / 2
-    ) - (lc[0] - lc[1] / 2)
-    vec3[1] = -(nlc[1] - lattice_constant_b - lc[1]) * np.sqrt(3) / 2
+        nlc[0]
+        + lattice_constant_a
+        + (nlc[1] - lattice_constant_b) * np.cos(gamma)
+    ) + (lc[0] - lc[1] * np.cos(gamma))
+    vec3[1] = (nlc[1] - lattice_constant_b - lc[1]) * np.sin(gamma)
 
     # +y
     vec4 = np.zeros((2))
-    vec4[0] = (nlc[0] - (nlc[1] - lattice_constant_b) / 2) - (
-        lc[0] - lc[1] / 2
-    )
-    vec4[1] = -(nlc[1] - lattice_constant_b - lc[1]) * np.sqrt(3) / 2
+    vec4[0] = (
+        nlc[0] + (nlc[1] - lattice_constant_b) * np.cos(gamma)
+    ) - (lc[0] + lc[1] * np.cos(gamma))
+    vec4[1] = (nlc[1] - lattice_constant_b - lc[1]) * np.sin(gamma)
 
     # -x
     vec5 = np.zeros((2))
-    vec5[0] = (nlc[0] - nlc[1] / 2) - (
-        lc[0] + lattice_constant_a - lc[1] / 2
+    vec5[0] = (nlc[0] + nlc[1] * np.cos(gamma)) - (
+        lc[0] + lattice_constant_a + lc[1] * np.cos(gamma)
     )
-    vec5[1] = -(nlc[1] - lc[1]) * np.sqrt(3) / 2
+    vec5[1] = (nlc[1] - lc[1]) * np.sin(gamma)
 
     # -x-y
     vec6 = np.zeros((2))
-    vec6[0] = (nlc[0] - (nlc[1]) / 2) - (
-        lc[0] + lattice_constant_a - (lc[1] - lattice_constant_b) / 2
+    vec6[0] = (nlc[0] + (nlc[1]) * np.cos(gamma)) - (
+        lc[0]
+        + lattice_constant_a
+        + (lc[1] - lattice_constant_b) * np.cos(gamma)
     )
-    vec6[1] = -(nlc[1] - (lc[1] - lattice_constant_b)) * np.sqrt(3) / 2
+    vec6[1] = (nlc[1] - (lc[1] - lattice_constant_b)) * np.sin(gamma)
 
     # -y
     vec7 = np.zeros((2))
-    vec7[0] = (nlc[0] - nlc[1] / 2) - (
-        lc[0] - (lc[1] - lattice_constant_b) / 2
+    vec7[0] = (nlc[0] + nlc[1] * np.cos(gamma)) - (
+        lc[0] + (lc[1] - lattice_constant_b) * np.cos(gamma)
     )
-    vec7[1] = -(nlc[1] - (lc[1] - lattice_constant_b)) * np.sqrt(3) / 2
+    vec7[1] = (nlc[1] - (lc[1] - lattice_constant_b)) * np.sin(gamma)
 
     # x-y
     vec8 = np.zeros((2))
-    vec8[0] = (nlc[0] + lattice_constant_a - nlc[1] / 2) - (
-        lc[0] - (lc[1] - lattice_constant_b) / 2
+    vec8[0] = (nlc[0] + lattice_constant_a + nlc[1] * np.cos(gamma)) - (
+        lc[0] + (lc[1] - lattice_constant_b) * np.cos(gamma)
     )
-    vec8[1] = -(nlc[1] - (lc[1] - lattice_constant_b)) * np.sqrt(3) / 2
+    vec8[1] = (nlc[1] - (lc[1] - lattice_constant_b)) * np.sin(gamma)
 
     # -x+y
     vec9 = np.zeros((2))
-    vec9[0] = (nlc[0] - (nlc[1] - lattice_constant_b) / 2) - (
-        lc[0] + lattice_constant_a - (lc[1]) / 2
-    )
-    vec9[1] = -(nlc[1] - lattice_constant_b - (lc[1])) * np.sqrt(3) / 2
+    vec9[0] = (
+        nlc[0] + (nlc[1] - lattice_constant_b) * np.cos(gamma)
+    ) - (lc[0] + lattice_constant_a + (lc[1]) * np.cos(gamma))
+    vec9[1] = (nlc[1] - lattice_constant_b - (lc[1])) * np.sin(gamma)
 
     vec_mag_1 = np.sqrt(vec1[1] ** 2 + vec1[0] ** 2)
     vec_mag_2 = np.sqrt(vec2[1] ** 2 + vec2[0] ** 2)
@@ -415,6 +442,7 @@ def get_edge_prototypes(
 
     coordinates = cif_data["coords"]
     cell_lengths = cif_data["cell_lengths"]
+    cell_angles = cif_data["cell_angles"]
 
     logging.info("need to check why I do not get none in vecmag")
     edge_prototypes = []
@@ -429,6 +457,7 @@ def get_edge_prototypes(
                 lattice_constant_a=cell_lengths[0],
                 lattice_constant_b=cell_lengths[1],
                 lattice_constant_c=cell_lengths[2],
+                gamma=cell_angles[2] * np.pi / 180.0,
             )
 
             if no_edge:
@@ -454,14 +483,26 @@ def get_edge_prototypes(
 
 
 def main():
-    if not len(sys.argv) == 2:
-        logging.info(f"Usage: {__file__}\n" "   Expected 1 arguments:")
+    if not len(sys.argv) == 5:
+        logging.info(f"Usage: {__file__}\n" "   Expected 4 arguments:")
         logging.info(
             "cif_file (str): `.cif` file to python script from"
+        )
+        logging.info(
+            "run_optimisation (str): `t` if true, anything otherwise"
+        )
+        logging.info(
+            "small_bb_name (str): select bb from `bb1`, `bb2`, `bb3`"
+        )
+        logging.info(
+            "large_bb_name (str): select bb from `bb1`, `bb2`, `bb3`"
         )
         sys.exit()
     else:
         cif_file = sys.argv[1]
+        run_optimisation = True if sys.argv[2] == "t" else False
+        small_bb_name = sys.argv[3]
+        large_bb_name = sys.argv[4]
 
     name = cif_file.replace(".cif", "")
     _, temp, n = name.split("_")
@@ -471,9 +512,7 @@ def main():
 
     write_output_txt(
         path=f"output_{temp}.txt",
-        lattice_constant_a=cif_data["cell_lengths"][0],
-        lattice_constant_b=cif_data["cell_lengths"][1],
-        lattice_constant_c=cif_data["cell_lengths"][2],
+        lattice_matrix=cif_data["lattice_matrix"],
     )
 
     # Define vertex prototypes.
@@ -490,6 +529,8 @@ def main():
         nonlinear_vertices=nl_vertices,
         edge_prototypes=edge_prototypes,
         cif_data=cif_data,
+        small_bb_name=small_bb_name,
+        large_bb_name=large_bb_name,
     )
 
     CifWriter().write(
@@ -502,28 +543,37 @@ def main():
         path=f"{sim_name}.xyz",
     )
 
-    raise SystemExit()
-    logging.info("optimising the cof with Gulp...")
-    gulp_opt = stko.GulpUFFOptimizer(
-        gulp_path="/home/atarzia/software/gulp-6.1/Src/gulp",
-        output_dir=f"{name}_gulpopt",
-        maxcyc=50,
-        conjugate_gradient=True,
-    )
-    gulp_opt.assign_FF(cof)
-    cof, unit_cell = gulp_opt.p_optimize(
-        mol=cof,
-        unit_cell=unit_cell,
-    )
-    CifWriter().write(
-        molecule=cof,
-        path=f"{sim_name}_opt.cif",
-        periodic_info=unit_cell,
-    )
-    stk.XyzWriter().write(
-        molecule=cof,
-        path=f"{sim_name}_opt.xyz",
-    )
+    if run_optimisation:
+        logging.info("optimising the cof with Gulp...")
+        gulp_opt = stko.GulpUFFOptimizer(
+            gulp_path="/home/atarzia/software/gulp-6.1/Src/gulp",
+            output_dir=f"{name}_gulpopt",
+            maxcyc=50,
+            conjugate_gradient=True,
+        )
+        gulp_opt.assign_FF(cof)
+        cof, unit_cell = gulp_opt.p_optimize(
+            mol=cof,
+            unit_cell=unit_cell,
+        )
+        CifWriter().write(
+            molecule=cof,
+            path=f"{sim_name}_opt.cif",
+            periodic_info=unit_cell,
+        )
+        stk.XyzWriter().write(
+            molecule=cof,
+            path=f"{sim_name}_opt.xyz",
+        )
+        stk.MolWriter().write(
+            molecule=cof,
+            path=f"{sim_name}_opt.mol",
+        )
+        stk.PdbWriter().write(
+            molecule=cof,
+            path=f"{sim_name}_opt.pdb",
+            periodic_info=unit_cell,
+        )
 
 
 if __name__ == "__main__":
