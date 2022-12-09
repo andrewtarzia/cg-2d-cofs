@@ -8,44 +8,6 @@ import logging
 from cif_writer import CifWriter
 
 
-class NewNonLinearVertex(stk.cof.NonLinearVertex):
-    def place_building_block(self, building_block, edges):
-        assert building_block.get_num_functional_groups() > 2, (
-            f"{building_block} needs to have more than 2 functional "
-            "groups but has "
-            f"{building_block.get_num_functional_groups()}."
-        )
-        edges = sorted(edges, key=lambda edge: edge.get_parent_id())
-        building_block = building_block.with_centroid(
-            position=self._position,
-            atom_ids=building_block.get_placer_ids(),
-        )
-        core_centroid = building_block.get_centroid(
-            atom_ids=building_block.get_core_atom_ids(),
-        )
-        normal = building_block.get_plane_normal(
-            atom_ids=building_block.get_placer_ids(),
-        )
-        normal = stk.get_acute_vector(
-            reference=core_centroid - self._position,
-            vector=normal,
-        )
-        building_block = building_block.with_rotation_between_vectors(
-            start=normal,
-            target=[0, 0, 1],
-            origin=self._position,
-        )
-        (fg,) = building_block.get_functional_groups(0)
-        fg_centroid = building_block.get_centroid(fg.get_placer_ids())
-        edge_position = edges[self._aligner_edge].get_position()
-        return building_block.with_rotation_to_minimize_angle(
-            start=fg_centroid - self._position,
-            target=edge_position - self._position,
-            axis=np.array([0, 0, 1], dtype=np.float64),
-            origin=self._position,
-        ).get_position_matrix()
-
-
 class CustomPeriodicTopology:
     def __init__(
         self,
@@ -84,7 +46,6 @@ class CustomPeriodicTopology:
             _vertex_prototypes = vertex_prototypes
             _edge_prototypes = edge_prototypes
 
-        logging.info("check why place bb is needed.")
         self._topology_graph = InternalTopology(
             building_blocks=building_blocks,
             lattice_size=lattice_size,
@@ -99,9 +60,8 @@ class CustomPeriodicTopology:
         return self._topology_graph.construct()
 
 
-def parse_cif(path, n):
-    logging.info("check this variable")
-
+def parse_cif(path, supercell_size):
+    n = int(int(supercell_size) / 2)
     coords = []
     coord_type = []
 
@@ -141,14 +101,7 @@ def parse_cif(path, n):
 
     # Transform coordinates into array of shape n*3.
     coords = np.asarray(coords, dtype=np.float64, order="C")
-    # coords = coords.reshape(20 * n * n, 3)
-    # print(coords.shape)
-    # for i in range(20 * n * n):
-    #     coords[i][0] = coords[i][0] * float(cell_lengths[0])
-    #     coords[i][1] = coords[i][1] * float(cell_lengths[1])
-    #     coords[i][2] = coords[i][2] * float(cell_lengths[2])
-    # print(coords.shape)
-    # raise SystemExit()
+
     return {
         "coords": coords,
         "coord_type": coord_type,
@@ -177,7 +130,7 @@ def get_vertex_prototypes(cif_data):
     for i, ctype in enumerate(cif_data["coord_type"]):
         coordinates = cif_data["coords"][i]
         if ctype == "Ti":
-            vertex = NewNonLinearVertex(
+            vertex = stk.cof.NonLinearVertex(
                 id=len(nonlinear_vertices),
                 position=(
                     coordinates[0] + coordinates[1] * np.cos(gamma),
@@ -215,7 +168,7 @@ def get_bb_dictionary(
     small_bb_name,
     large_bb_name,
 ):
-    logging.info("need to automate the selection of BBs.")
+
     # Define atomistic bbs.
     bbs = {
         "bb1": stk.BuildingBlock(
@@ -227,7 +180,9 @@ def get_bb_dictionary(
             functional_groups=(stk.BromoFactory(),),
         ),
         "bb3": stk.BuildingBlock(
-            smiles=r"C1=CC(C2=CC=C(C3=CC=C(/C=N/Br)C=C3)C=C2)=CC=C1/C=N/Br",
+            smiles=(
+                r"C1=CC(C2=CC=C(C3=CC=C(/C=N/Br)C=C3)C=C2)=CC=C1/C=N/Br"
+            ),
             functional_groups=(stk.BromoFactory(),),
         ),
     }
@@ -396,18 +351,6 @@ def get_periodicity(
     vec_mag_8 = np.sqrt(vec8[1] ** 2 + vec8[0] ** 2)
     vec_mag_9 = np.sqrt(vec9[1] ** 2 + vec9[0] ** 2)
 
-    # print(
-    #     vec_mag_1,
-    #     vec_mag_2,
-    #     vec_mag_3,
-    #     vec_mag_4,
-    #     vec_mag_5,
-    #     vec_mag_6,
-    #     vec_mag_7,
-    #     vec_mag_8,
-    #     vec_mag_9,
-    # )
-
     no_edge = False
     if vec_mag_1 < 20:
         periodicity = None
@@ -444,7 +387,6 @@ def get_edge_prototypes(
     cell_lengths = cif_data["cell_lengths"]
     cell_angles = cif_data["cell_angles"]
 
-    logging.info("need to check why I do not get none in vecmag")
     edge_prototypes = []
     for nl_c_id, nlv in nonlinear_vertices.items():
         for l_c_id, lv in linear_vertices.items():
@@ -505,13 +447,13 @@ def main():
         large_bb_name = sys.argv[4]
 
     name = cif_file.replace(".cif", "")
-    _, temp, n = name.split("_")
-    sim_name = f"cof_n_{n}_T_{temp}"
-    logging.info(f"ask about this variable, n: {n}, temp: {temp}")
-    cif_data = parse_cif(cif_file, n=int(n))
+    _, t_on_j, supercell_size = name.split("_")
+    sim_name = f"cof_n_{supercell_size}_T_{t_on_j}"
+    logging.info(f"variables: n={supercell_size}/2, T/J={t_on_j}")
+    cif_data = parse_cif(cif_file, supercell_size=int(supercell_size))
 
     write_output_txt(
-        path=f"output_{temp}.txt",
+        path=f"output_{t_on_j}.txt",
         lattice_matrix=cif_data["lattice_matrix"],
     )
 
